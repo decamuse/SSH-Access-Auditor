@@ -1,2 +1,2 @@
-__pycache__/
-.zcode/
+*.exe
+!SSH-Access-Auditor-windows-amd64.exe

@@ -1,116 +1,120 @@
 # SSH-Access-Auditor
 
-## 一、介绍
+Linux SSH 日志应急排查工具。
 
-对 SSH 日志的访问登录事件进行分析，面向应急排查场景。
+## 一、快速上手
 
-支持日志：
+### 交互模式
 
-- `/var/log/auth.log`（Debian/Ubuntu 系统）
-- `/var/log/secure`（RHEL/CentOS 系统）
+上传对应架构的二进制到服务器，赋予执行权限后不带参数运行：
 
-兼容两种格式：英文旧格式 `sshd[pid]`，中文新格式 `sshd-session[pid]`（Kali 2024+ 等），中文日期（`2月 11`）与英文日期（`Feb 11`）均可解析。编码按 UTF-8 优先、GBK 回退。
+```shell
+chmod +x SSH-Access-Auditor-linux-amd64
 
-事件覆盖 9 类：登录成功（Accepted）、认证失败（Failed）、无效用户（Invalid user）、认证超限（maximum authentication attempts exceeded）、认证中断（Connection closed / Disconnected by authenticating user）、会话开启与关闭（session opened/closed）、useradd 新建账号、特权组添加。
+./SSH-Access-Auditor-linux-amd64
+```
 
-核心能力：
+程序自动发现 `/var/log` 下的 SSH 日志并全部勾选，回车开始分析，结果直接输出到终端。
 
-- 爆破 IP 判定：失败类合计超过阈值（`--threshold`，默认 10）
-- 高危「疑似爆破成功」：成功登录前 `--window` 分钟（默认 30）内同 IP 失败达到阈值，替代旧版全局交集判定
-- IP 画像：失败、成功、无效用户计数，尝试过的用户名，首次与末次出现
-- 后门账号检测：useradd 新建账号中 UID 为 0 或加入 sudo、wheel、adm、admin、root 组的记录
-- 会话时长：按进程号配对 session opened/closed，未正常关闭与超 24 小时会话提示
-- 异常端口提示：非 22 端口的成功登录单独标记
-- 离线黑名单：`--blacklist` 指定本地 IP 名单文件，命中高亮
-- 四种输出：彩色终端、文本报告、单文件 HTML 报告（内嵌 CSS，离线可打开）、JSON 与 CSV 导出
+![image-20261109070940702](./笔记图片/image-20261109070940702.png)
 
-参考：[pizslacker/sshlog: Log-parser script for ssh-auditing - server-side tool.](https://github.com/pizslacker/sshlog)
+### 参数模式
 
-## 二、使用方法
+其它常用命令：
 
-### 2.1 方法介绍
+```shell
+### 扫描指定目录，自动识别日志文件
+./SSH-Access-Auditor-linux-amd64 /var/log/
 
-- `logfile`（必选）：指定要分析的日志文件路径（例如：`./auth.log`）。
-- `-h, --help`：查看帮助。
-- `-a, --accepted`：在屏幕显示认证成功的登录记录及统计信息。
-- `-f, --failed`：在屏幕显示认证失败的登录尝试及统计信息。
-- `-k, --key`：仅在屏幕输出中过滤基于公钥（publicKey）的认证。
-- `-p, --password`：仅在屏幕输出中过滤基于密码（password）的认证。
-- `-P, --pam`：仅在屏幕输出中过滤基于键盘交互/PAM 的认证。
-- `-t`：按指定日期筛选（例如：`-t "12/23"`）。
-- `-ts`：按起始时间筛选（例如：`-ts "12/23 03:00:00"`）。
-- `-te`：按结束时间筛选（例如：`-te "12/23 23:00:00"`）。
-- `-tr`：显示最近 X 天的记录（例如：`-tr 7` 显示近 7 天）。
-- `-o`：生成审计报告，`.html` 后缀自动生成 HTML 报告，其余为文本报告。
-- `--export json,csv`：导出结构化事件，逗号分隔可复选。
-- `--top N`：汇总模式，失败明细只显示 Top N 攻击 IP。
-- `--threshold N`：爆破判定阈值，失败类次数超过该值判定为爆破（默认 10）。
-- `--window N`：爆破成功关联窗口分钟数（默认 30）。
-- `--blacklist FILE`：本地 IP 黑名单文件，每行一个 IP 或 CIDR。
-- `--no-color`：关闭颜色输出。
+### 指定日志文件，生成 HTML 报告
+./SSH-Access-Auditor-linux-amd64 /var/log/auth.log -o report.html
 
-不带 `-a`、`-f`、`-o`、`--export` 任何一项时，输出精简概要（爆破 IP、高危标记、后门账号、异常端口）。
+### 大日志只看 Top 10 失败 IP 汇总
+./SSH-Access-Auditor-linux-amd64 /var/log/auth.log -f --top 10
 
-### 2.2 快速使用
+### 自动化：免交互输出文本报告并导出 CSV 事件
+./SSH-Access-Auditor-linux-amd64 /var/log/auth.log -y -o report.txt --export csv
 
-- 基础分析报告：
+### 自定义阈值与时间窗（登录成功前 60 分钟内，若登录失败超过 20 次，判定为疑似暴力破解成功）
+./SSH-Access-Auditor-linux-amd64 /var/log/auth.log --threshold 20 --window 60
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log -o report.txt
-  ```
+### 加载 IP 黑名单
+./SSH-Access-Auditor-linux-amd64 /var/log/auth.log --blacklist iplist.txt
+```
 
-  <img src="./笔记图片/image-20260502231427165.png" alt="基础分析报告输出" style="zoom:67%;" />
+![Windows 终端扫描当前目录的完整输出，含执行的命令](./README图片/windows目录扫描终端输出.png)
 
-- 筛选登录成功的记录：
+![image-20261109070839748](./笔记图片/image-20261109070839748.png)
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log -a
-  ```
+## 二、功能
 
-  <img src="./笔记图片/image-20260502231802700.png" alt="登录成功筛选输出" style="zoom:67%;" />
+### 2.1 检测项
 
-- 筛选登录失败的记录：
+- 暴力破解 IP 判定：失败类次数合计超过阈值（默认 10）
+- 疑似暴力破解成功：成功登录前 30 分钟内同 IP 失败达到阈值，判定为高危
+- 内网攻击：来源 IP 属于私网段（10/8、172.16/12、192.168/16）且存在失败类事件即列出，提示失陷内网主机横向移动
+- 后门账户：新建账户 UID 为 0 或加入 sudo、wheel、adm、admin、root 组，结合 lastlog 标注无任何登录记录的休眠后门
+- 新建账户首次登录关联：useradd 后 7 天内首次登录的来源 IP
+- root 账户直接登录、同账户 10 分钟内多 IP 登录、非工作时段（00:00～05:59）成功登录
+- sudo 与 su 提权：命令明细与认证失败事件
+- 非 22 端口成功登录、未正常关闭与超 24 小时的会话提示
+- IP 画像：每个 IP 的失败、成功、无效用户计数，尝试过的用户名，首次与末次出现
+- 离线 IP 黑名单（每行一个 IP 或 CIDR），命中标记
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log -f
-  ```
+### 2.2 支持的日志
 
-  <img src="./笔记图片/image-20260502231823124.png" alt="登录失败筛选输出" style="zoom:67%;" />
+- 文本日志：`auth.log`（Debian/Ubuntu 系）、`secure`（RHEL/CentOS 系）与轮转归档（`auth.log.1`、`secure-20240101.gz` 一类）默认自动发现
+- 任意文本文件：菜单「添加目录 / 添加文件」或命令行手动添加即可解析，`.gz` 按文件内容识别，改名不影响解压
+- 二进制日志：`btmp`（失败登录）、`wtmp`（登录会话）、`lastlog`（各账户末次登录），独立统计不与文本日志重复计数，按文件名识别，手动添加时保持原名
+- journald 兜底：无文本日志时自动提取最近 30 天 sshd 日志，需要 root 或 systemd-journal 组权限
+- 兼容格式：`sshd[pid]` 与 `sshd-session[pid]` 两种格式，英文与中文日期，IPv4 与 IPv6
+- 解析事件：登录成功、认证失败、无效用户、认证超限、认证中断、会话开启与关闭、新建账户、组添加、sudo 与 su 提权
+- 计数口径：无用户名的认证中断计入失败（用户名记为未知），无年份日志按文件修改时间推断年份，跨年场景需人工复核
 
-- 筛选以 publicKey 方式登录成功的记录：
+## 三、用法
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log -a -k
-  ```
+### 3.1 交互模式
 
-  <img src="./笔记图片/image-20260502231901855.png" alt="公钥认证筛选输出" style="zoom:67%;" />
+不带参数运行即进入交互模式：
 
-- 生成 HTML 可视化报告：
+- 自动识别发行版，列出 SSH 相关日志并全部勾选，回车开始分析
+- 菜单选「只选特定文件」勾选部分文件：上下方向键移动，空格切换勾选，`a` 全选或全不选，回车确认，`q` 取消恢复
+- 终端不支持方向键时自动回退为数字选择模式
+- 分析完成后进入「退出 / 导出」菜单，选「导出」勾选格式，默认勾选 TXT 与 HTML
+- 导出文件名默认 `SSH审计报告_YYYYMMDD_HHMMSS.扩展名`，生成到当前目录
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log -o report.html
-  ```
+### 3.2 参数模式
 
-- 大日志下只看 Top 10 攻击 IP 汇总：
+命令行直接接文件或目录（目录只做一层发现，多参数合并去重）。分析结果输出到终端后进入「退出 / 导出」菜单：
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log -f --top 10
-  ```
+```shell
+./SSH-Access-Auditor-linux-amd64 /var/log/auth.log /var/log/btmp
+```
 
-- 导出 JSON 与 CSV 事件明细：
+参数说明：
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log --export json,csv
-  ```
+| 参数 | 作用 |
+| :- | :- |
+| `-a` | 屏幕追加显示认证成功的登录记录及统计 |
+| `-f` | 屏幕追加显示认证失败的登录尝试及统计 |
+| `-o FILE` | 生成审计报告，`.html` 后缀生成 HTML，其余为文本 |
+| `--export json,csv` | 导出结构化事件，逗号分隔可复选 |
+| `--top N` | 汇总模式，失败明细只显示 Top N 攻击 IP |
+| `--threshold N` | 暴力破解判定阈值，默认 10 |
+| `--window N` | 疑似暴力破解成功关联窗口分钟数，默认 30 |
+| `--blacklist FILE` | IP 黑名单文件，每行一个 IP 或 CIDR |
+| `--no-color` | 关闭颜色输出 |
+| `-y` | 免交互，需提供文件或目录，配合 `-o` 与 `--export` 做自动化 |
+| `-h` | 查看帮助 |
 
-- 自定义爆破阈值与时间窗，加载本地 IP 黑名单：
+## 四、从源码构建
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log --threshold 20 --window 60 --blacklist iplist.txt
-  ```
+源码在 `go/` 目录，纯标准库零第三方依赖，任意安装了 Go 的机器交叉编译：
 
-- 筛选特定时间段内，以 password 方式登录的尝试：
+```shell
+cd go
 
-  ```shell
-  python SSH-Access-Auditor.py ./auth.log -a -f -p -ts "12/24 03:00:00" -te "12/24 23:00:00"
-  ```
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../SSH-Access-Auditor-linux-amd64 .
+
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o ../SSH-Access-Auditor-linux-arm64 .
+```
